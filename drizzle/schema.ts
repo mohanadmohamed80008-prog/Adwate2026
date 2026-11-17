@@ -49,7 +49,7 @@ export const visitEvents = mysqlTable("visitEvents", {
 
 export const notifications = mysqlTable("notifications", {
   id: int("id").autoincrement().primaryKey(),
-  type: mysqlEnum("type", ["new_member", "traffic_spike", "system"]).default("system").notNull(),
+  type: mysqlEnum("type", ["new_member", "traffic_spike", "system", "ai_report"]).default("system").notNull(),
   title: varchar("title", { length: 160 }).notNull(),
   body: text("body").notNull(),
   isRead: int("isRead").default(0).notNull(),
@@ -57,6 +57,25 @@ export const notifications = mysqlTable("notifications", {
 });
 
 export type Notification = typeof notifications.$inferSelect;
+
+export const toolUsageEvents = mysqlTable("toolUsageEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  toolId: varchar("toolId", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const improvementReports = mysqlTable("improvementReports", {
+  id: int("id").autoincrement().primaryKey(),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  status: mysqlEnum("status", ["proposed", "approved", "rejected", "applied"]).default("proposed").notNull(),
+  summary: text("summary").notNull(),
+  recommendations: text("recommendations").notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ImprovementReport = typeof improvementReports.$inferSelect;
 
 export const auditLogs = mysqlTable("auditLogs", {
   id: int("id").autoincrement().primaryKey(),

@@ -46,6 +46,7 @@ const sideItems = [
   { id: "messages", label: "الرسائل والدعم", icon: MessageSquare, badge: "١٢" },
   { id: "faq", label: "الأسئلة الشائعة", icon: HelpCircle },
   { id: "analytics", label: "الإحصاءات", icon: BarChart3 },
+  { id: "improvements", label: "تحسينات الذكاء", icon: Sparkles },
   { id: "audit", label: "سجل النشاط", icon: ClipboardList },
   { id: "settings", label: "إعدادات الموقع", icon: Settings },
 ];
@@ -137,6 +138,7 @@ export default function Admin() {
           {active === "messages" && <Messages />}
           {active === "faq" && <FaqManager />}
           {active === "analytics" && <Analytics />}
+          {active === "improvements" && <ImprovementReports />}
           {active === "audit" && <AuditLog />}
           {active === "settings" && <SettingsPanel maintenanceEnabled={maintenanceEnabled} setMaintenanceEnabled={setMaintenanceEnabled} scheduled={scheduled} setScheduled={setScheduled} from={from} setFrom={setFrom} to={to} setTo={setTo} allowRegistration={allowRegistration} setAllowRegistration={setAllowRegistration} aiEnabled={aiEnabled} setAiEnabled={setAiEnabled} adsensePublisherId={adsensePublisherId} setAdsensePublisherId={setAdsensePublisherId} searchConsoleUrl={searchConsoleUrl} setSearchConsoleUrl={setSearchConsoleUrl} onSave={saveSettings} saved={saved} saving={updateSiteSettingsMutation.isPending || updateAIMutation.isPending} />}
         </div>
@@ -145,7 +147,7 @@ export default function Admin() {
   );
 }
 
-function NotificationsPanel({ items, unreadCount, onRead, onReadAll }: { items: Array<{ id: number; type: "new_member" | "traffic_spike" | "system"; title: string; body: string; isRead: number; createdAt: Date | string }>; unreadCount: number; onRead: (id: number) => void; onReadAll: () => void }) {
+function NotificationsPanel({ items, unreadCount, onRead, onReadAll }: { items: Array<{ id: number; type: "new_member" | "traffic_spike" | "system" | "ai_report"; title: string; body: string; isRead: number; createdAt: Date | string }>; unreadCount: number; onRead: (id: number) => void; onReadAll: () => void }) {
   return <div className="absolute left-0 top-12 z-50 w-[min(360px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-right shadow-2xl" dir="rtl"><div className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><p className="text-xs font-black text-slate-900">الإشعارات</p><p className="mt-1 text-[10px] text-slate-400">{unreadCount ? `${unreadCount} غير مقروءة` : "كل الإشعارات مقروءة"}</p></div>{unreadCount > 0 && <button onClick={onReadAll} className="text-[10px] font-black text-teal-700 hover:text-teal-900">تعليم الكل كمقروء</button>}</div><div className="max-h-[360px] overflow-y-auto">{items.length === 0 ? <div className="px-4 py-10 text-center text-xs font-bold text-slate-400">لا توجد إشعارات حتى الآن.</div> : items.map((item) => <button key={item.id} onClick={() => item.isRead ? undefined : onRead(item.id)} className={`flex w-full gap-3 border-b border-slate-50 px-4 py-3 text-right transition hover:bg-slate-50 ${item.isRead ? "opacity-60" : "bg-amber-50/40"}`}><span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${item.type === "traffic_spike" ? "bg-orange-100 text-orange-600" : "bg-teal-100 text-teal-700"}`}><Bell size={15} /></span><span className="min-w-0"><span className="block text-xs font-black text-slate-800">{item.title}</span><span className="mt-1 block text-[10px] leading-5 text-slate-500">{item.body}</span><span className="mt-1 block text-[9px] font-bold text-slate-400">{new Date(item.createdAt).toLocaleString("ar-SA")}</span></span>{!item.isRead && <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-orange-500" />}</button>)}</div></div>;
 }
 
@@ -190,6 +192,15 @@ function Analytics() {
       <div className="admin-card"><div className="flex items-start gap-3"><span className="admin-stat-icon teal"><Activity size={18} /></span><div><h2 className="admin-card-title">كيف تُحسب المؤشرات؟</h2><p className="admin-card-subtitle mt-2 leading-7">تُسجّل الزيارة عند فتح الصفحة العامة، بينما يُحسب العضو النشط إذا سجّل دخوله خلال آخر ٣٠ يومًا ولم يكن محظورًا.</p></div></div></div>
       <div className="admin-card"><h2 className="admin-card-title">حالة جمع البيانات</h2><div className="mt-5 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><div><p className="text-xs font-black text-emerald-800">التتبع يعمل</p><p className="mt-1 text-[10px] text-emerald-700">يتم تحديث الزيارات عند فتح الموقع.</p></div></div></div>
     </div>
+  </Section>;
+}
+
+function ImprovementReports() {
+  const query = trpc.admin.improvementReports.useQuery();
+  const review = trpc.admin.reviewImprovementReport.useMutation({ onSuccess: () => void query.refetch() });
+  const statusLabel = (status: string) => ({ proposed: "بانتظار المراجعة", approved: "موافق عليه", rejected: "مرفوض", applied: "تم التطبيق" }[status] ?? status);
+  return <Section title="تحسينات الذكاء الاصطناعي" subtitle="تقارير أسبوعية مبنية على استخدام الأدوات. لا يتم تطبيق أي تغيير على الكود أو قاعدة البيانات تلقائيًا.">
+    <div className="space-y-4">{query.isLoading ? <div className="admin-card py-16 text-center text-sm font-bold text-slate-400">جارٍ تحميل التقارير...</div> : query.data?.length ? query.data.map((report) => <article key={report.id} className="admin-card"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2"><Sparkles size={17} className="text-teal-700" /><h2 className="admin-card-title">تقرير أسبوعي #{report.id}</h2></div><p className="mt-2 text-[10px] text-slate-400">{new Date(report.createdAt).toLocaleString("ar-SA")} · <span className="font-black text-teal-700">{statusLabel(report.status)}</span></p></div>{report.status === "proposed" && <div className="flex gap-2"><button disabled={review.isPending} onClick={() => review.mutate({ id: report.id, status: "approved" })} className="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black text-white disabled:opacity-50">موافقة للمراجعة</button><button disabled={review.isPending} onClick={() => review.mutate({ id: report.id, status: "rejected" })} className="rounded-xl border border-rose-200 px-3 py-2 text-[10px] font-black text-rose-600 disabled:opacity-50">رفض</button></div>}</div><div className="mt-5 whitespace-pre-wrap rounded-2xl bg-slate-50 p-4 text-sm leading-8 text-slate-700">{report.summary}</div>{report.status === "approved" && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold leading-6 text-amber-800">تمت الموافقة على الاقتراح للمراجعة. يلزم تنفيذ التغيير يدويًا أو عبر عملية نشر منفصلة.</p>}</article>) : <div className="admin-card py-16 text-center text-sm font-bold text-slate-400">لم ينشأ تقرير أسبوعي بعد.</div>}</div>
   </Section>;
 }
 

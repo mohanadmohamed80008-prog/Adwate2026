@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, like, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { auditLogs, InsertSiteSettings, InsertUser, notifications, siteSettings, siteStats, users, visitEvents } from "../drizzle/schema";
+import { auditLogs, improvementReports, InsertSiteSettings, InsertUser, notifications, siteSettings, siteStats, toolUsageEvents, users, visitEvents } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { sendOwnerNotification } from './_core/ownerNotifications';
 
@@ -115,6 +115,8 @@ export async function ensureOptionalSchema() {
   if (!db) return;
   try {
     await db.execute(sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS aiEnabled INT NOT NULL DEFAULT 1`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS toolUsageEvents (id INT AUTO_INCREMENT PRIMARY KEY, toolId VARCHAR(64) NOT NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_tool_usage_createdAt (createdAt), INDEX idx_tool_usage_toolId (toolId))`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS improvementReports (id INT AUTO_INCREMENT PRIMARY KEY, periodStart TIMESTAMP NOT NULL, periodEnd TIMESTAMP NOT NULL, status ENUM('proposed','approved','rejected','applied') NOT NULL DEFAULT 'proposed', summary TEXT NOT NULL, recommendations TEXT NOT NULL, reviewedAt TIMESTAMP NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_improvement_status (status), INDEX idx_improvement_createdAt (createdAt))`);
   } catch (error) {
     console.warn("[Database] Optional schema update skipped:", error instanceof Error ? error.message : error);
   }
@@ -145,7 +147,7 @@ export async function recordSiteVisit() {
   }
 }
 
-export async function createNotification(values: { type: "new_member" | "traffic_spike" | "system"; title: string; body: string }) {
+export async function createNotification(values: { type: "new_member" | "traffic_spike" | "system" | "ai_report"; title: string; body: string }) {
   const db = await getDb();
   if (!db) return;
   await db.insert(notifications).values({ ...values, isRead: 0 });
@@ -222,4 +224,44 @@ export function isSiteMaintenanceActive(settings: Awaited<ReturnType<typeof getS
   const end = minutes(settings.maintenanceTo);
   const current = now.getHours() * 60 + now.getMinutes();
   return start === end ? false : start < end ? current >= start && current < end : current >= start || current < end;
+}
+
+
+export async function recordToolUsage(toolId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(toolUsageEvents).values({ toolId: toolId.slice(0, 64) });
+}
+
+export async function getToolUsageSummary(since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ toolId: toolUsageEvents.toolId, uses: count() }).from(toolUsageEvents).where(gte(toolUsageEvents.createdAt, since)).groupBy(toolUsageEvents.toolId).orderBy(desc(sql`uses`)).limit(20);
+}
+
+export async function createImprovementReport(values: { periodStart: Date; periodEnd: Date; summary: string; recommendations: string }) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [result] = await db.insert(improvementReports).values({ ...values, status: "proposed" });
+  return getImprovementReportById(Number(result.insertId));
+}
+
+export async function getImprovementReportById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(improvementReports).where(eq(improvementReports.id, id)).limit(1);
+  return result[0];
+}
+
+export async function listImprovementReports() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(improvementReports).orderBy(desc(improvementReports.createdAt)).limit(12);
+}
+
+export async function updateImprovementReportStatus(id: number, status: "approved" | "rejected") {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.update(improvementReports).set({ status, reviewedAt: new Date() }).where(eq(improvementReports.id, id));
+  return getImprovementReportById(id);
 }

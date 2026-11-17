@@ -1,0 +1,23 @@
+name: Weekly AI improvement review
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  weekly-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate review report
+        env:
+          SITE_URL: https://adawati.onrender.com
+          WEEKLY_REVIEW_SECRET: ${{ secrets.WEEKLY_REVIEW_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$WEEKLY_REVIEW_SECRET"
+          curl --fail-with-body --retry 2 --max-time 120 \
+            -X POST "$SITE_URL/api/internal/weekly-ai-review" \
+            -H "x-weekly-review-secret: $WEEKLY_REVIEW_SECRET" \
+            -H "content-type: application/json" \
+            -d '{}'

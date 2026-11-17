@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { User } from "../drizzle/schema";
 import { COOKIE_NAME } from "@shared/const";
-import { createAuditLog, createLocalUser, createNotification, getAnalyticsSummary, getSiteSettings, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listNotifications, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, updateSiteSettings, updateUserAccess } from "./db";
+import { createAuditLog, createImprovementReport, createLocalUser, createNotification, getAnalyticsSummary, getImprovementReportById, getSiteSettings, getToolUsageSummary, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listImprovementReports, listNotifications, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, recordToolUsage, updateImprovementReportStatus, updateSiteSettings, updateUserAccess } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -12,6 +12,33 @@ import { invokeLLM } from "./_core/llm";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
+
+export async function runWeeklyImprovementReview() {
+  const periodEnd = new Date();
+  const periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const [usage, analytics] = await Promise.all([getToolUsageSummary(periodStart), getAnalyticsSummary()]);
+  const usageText = usage.length ? usage.map((item, index) => `${index + 1}. ${item.toolId}: ${Number(item.uses)} استخدام`).join("\n") : "لا توجد بيانات استخدام كافية بعد.";
+  const result = await invokeLLM({
+    model: "gpt-6.1-sol",
+    reasoning: { effort: "low" },
+    maxTokens: 1800,
+    messages: [
+      { role: "system", content: "أنت مستشار نمو آمن لمنصة أدواتي. حلّل البيانات وقدّم تقريرًا عربيًا عمليًا. لا تقترح حذف بيانات أو منح صلاحيات واسعة أو نشرًا تلقائيًا. اقترح تحسينات صغيرة قابلة للمراجعة من المدير، مستندة إلى الأدوات الأكثر استخدامًا وأنماط الطلبات الشائعة في منصات الأدوات الرقمية. اكتب: ملخص، ثم 3 اقتراحات مرقمة مع الفائدة والمخاطر وخطوة التنفيذ." },
+      { role: "user", content: `الفترة: ${periodStart.toISOString()} إلى ${periodEnd.toISOString()}\nالزيارات الكلية: ${analytics.visitsTotal}\nالأعضاء النشطون: ${analytics.activeMembers}\nالأعضاء الجدد خلال 7 أيام: ${analytics.newMembers}\nاستخدام الأدوات خلال 7 أيام:\n${usageText}` },
+    ],
+  });
+  const content = result.choices?.[0]?.message?.content;
+  const text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content;
+  if (!text) throw new Error("لم تصل نتيجة تقرير التحسين الأسبوعي");
+  const report = await createImprovementReport({ periodStart, periodEnd, summary: text.slice(0, 8000), recommendations: text.slice(0, 12000) });
+  if (report) {
+    const title = "تقرير تحسين أسبوعي جديد";
+    const body = `أنشأ مساعد الذكاء تقريرًا جديدًا رقم #${report.id}. راجعه من قسم التقارير قبل الموافقة على أي تغيير.`;
+    await createNotification({ type: "ai_report", title, body });
+    void sendOwnerNotification(title, body);
+  }
+  return report;
+}
 
 const publicUser = (user: User) => ({
   id: user.id,
@@ -67,6 +94,7 @@ export const appRouter = router({
   }),
   analytics: router({
     recordVisit: publicProcedure.mutation(async () => { await recordSiteVisit(); return { success: true } as const; }),
+    recordToolUsage: protectedProcedure.input(z.object({ toolId: z.string().regex(/^[a-z0-9-]{1,64}$/) })).mutation(async ({ input }) => { await recordToolUsage(input.toolId); return { success: true } as const; }),
   }),
   ai: router({
     assistant: protectedProcedure.input(z.object({
@@ -113,6 +141,14 @@ export const appRouter = router({
     markNotificationRead: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => { await markNotificationRead(input.id); return { success: true } as const; }),
     markAllNotificationsRead: adminProcedure.mutation(async () => { await markAllNotificationsRead(); return { success: true } as const; }),
     analytics: adminProcedure.query(() => getAnalyticsSummary()),
+    improvementReports: adminProcedure.query(() => listImprovementReports()),
+    reviewImprovementReport: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]) })).mutation(async ({ input, ctx }) => {
+      const report = await updateImprovementReportStatus(input.id, input.status);
+      if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "تقرير التحسين غير موجود" });
+      await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: `ai.report.${input.status}`, targetType: "improvementReport", targetId: input.id, req: ctx.req });
+      await createNotification({ type: "system", title: input.status === "approved" ? "تمت الموافقة على تقرير التحسين" : "تم رفض تقرير التحسين", body: `تم تحديث حالة التقرير #${input.id}. لا تُطبّق تغييرات إنتاجية تلقائيًا.` });
+      return report;
+    }),
     members: adminProcedure.query(async () => (await listUsers()).map(publicUser)),
     updateMember: adminProcedure.input(z.object({
       id: z.number().int().positive(),
