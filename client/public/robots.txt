@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /manus-oauth/
+
+# أضف رابط النطاق النهائي هنا بعد ربط الدومين:
+# Sitemap: https://example.com/sitemap.xml

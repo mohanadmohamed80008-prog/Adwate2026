@@ -1,0 +1,1 @@
+ALTER TABLE `siteSettings` ADD `adsensePublisherId` varchar(32);
