@@ -342,33 +342,45 @@ const fetchWithBackoff = async (
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
-  const input = params.messages.map(message => {
+  const prompt = params.messages.map(message => {
     const normalized = normalizeMessage(message);
     const text = typeof normalized.content === "string" ? normalized.content : JSON.stringify(normalized.content);
-    return { role: normalized.role === "assistant" ? "assistant" : normalized.role === "system" ? "system" : "user", content: [{ type: "input_text", text }] };
-  });
-  const response = await fetchWithBackoff(resolveApiUrl(), {
+    return `${normalized.role.toUpperCase()}:\n${text}`;
+  }).join("\n\n");
+  const response = await fetchWithBackoff(`${platformApiBase()}/v2/task.create`, {
     method: "POST",
-    headers: { "content-type": "application/json", API_KEY: ENV.forgeApiKey, authorization: `Bearer ${ENV.forgeApiKey}` },
-    body: JSON.stringify({ input, extra_body: { task_mode: "agent", agent_profile: "manus-1.6" } }),
+    headers: { "content-type": "application/json", "x-manus-api-key": ENV.forgeApiKey },
+    body: JSON.stringify({ message: { content: [{ type: "text", text: prompt }] }, agent_profile: "lite", title: "أدواتي - مساعد الذكاء الاصطناعي" }),
   });
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Manus invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
+    throw new Error(`Manus task creation failed: ${response.status} ${response.statusText} – ${errorText}`);
   }
-  let result = await response.json() as Record<string, any>;
+  const created = await response.json() as Record<string, any>;
+  if (!created.ok || !created.task_id) throw new Error(`Manus task creation returned an invalid response: ${JSON.stringify(created)}`);
+  const taskId = String(created.task_id);
+  let status = "running";
+  let messages: any[] = [];
   const deadline = Date.now() + 90_000;
-  while (result.status === "running" && Date.now() < deadline) {
+  while ((status === "running" || status === "waiting") && Date.now() < deadline) {
     await sleep(2000);
-    const poll = await fetchWithBackoff(`${platformApiBase()}/v1/responses/${encodeURIComponent(result.id)}`, { headers: { API_KEY: ENV.forgeApiKey, authorization: `Bearer ${ENV.forgeApiKey}` } });
-    if (!poll.ok) throw new Error(`Manus response polling failed: ${poll.status} ${await poll.text()}`);
-    result = await poll.json() as Record<string, any>;
+    const poll = await fetchWithBackoff(`${platformApiBase()}/v2/task.listMessages?task_id=${encodeURIComponent(taskId)}&order=desc&limit=50`, { headers: { "x-manus-api-key": ENV.forgeApiKey } });
+    if (!poll.ok) throw new Error(`Manus task polling failed: ${poll.status} ${await poll.text()}`);
+    const data = await poll.json() as Record<string, any>;
+    messages = Array.isArray(data.messages) ? data.messages : messages;
+    const updates = messages.filter(item => item.type === "status_update");
+    const latest = updates[updates.length - 1]?.status_update?.agent_status;
+    if (latest) status = latest;
   }
-  if (result.status !== "completed") throw new Error(`Manus task did not complete: ${result.status ?? "unknown"}`);
-  const assistantMessages = Array.isArray(result.output) ? result.output.filter((item: any) => item.role === "assistant") : [];
-  const text = assistantMessages.flatMap((item: any) => Array.isArray(item.content) ? item.content : []).map((part: any) => part.text || "").join("\n").trim();
+  if (status === "error") {
+    const error = messages.find(item => item.type === "error_message")?.error_message?.content;
+    throw new Error(`Manus task failed: ${error || "unknown error"}`);
+  }
+  if (status !== "stopped") throw new Error(`Manus task did not complete: ${status || "unknown"}`);
+  const assistantMessages = messages.filter(item => item.type === "assistant_message");
+  const text = assistantMessages.map(item => item.assistant_message?.content || "").filter(Boolean).join("\n").trim();
   if (!text) throw new Error("Manus returned no assistant text");
-  return { id: String(result.id), created: Number(result.createdAt || Date.now()), model: String(result.model || "manus-1.6"), choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }] };
+  return { id: taskId, created: Math.floor(Date.now() / 1000), model: "manus-api-v2", choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }] };
 }
 
 export type ModelInfo = {
