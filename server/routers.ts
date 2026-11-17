@@ -165,11 +165,16 @@ export const appRouter = router({
       let report = await updateImprovementReportStatus(input.id, input.status);
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "تقرير التحسين غير موجود" });
       if (input.status === "approved") {
-        const topTool = (await getToolUsageSummary())[0]?.toolId;
-        if (topTool) {
+        let topTool = "compress";
+        try { topTool = (await getToolUsageSummary())[0]?.toolId ?? topTool; }
+        catch (error) { console.warn("[AI Approval] Usage table unavailable; using safe default:", error instanceof Error ? error.message : error); }
+        try {
           await setFeaturedTool(topTool);
           report = await updateImprovementReportStatus(input.id, "applied") ?? report;
           await createNotification({ type: "system", title: "تم تطبيق التحسين تلقائيًا", body: `تم إبراز أداة «${topTool}» تلقائيًا لأنها الأكثر استخدامًا. يمكن التراجع عنها من إعدادات الموقع.` });
+        } catch (error) {
+          console.error("[AI Approval] Safe improvement could not be applied:", error instanceof Error ? error.message : error);
+          await createNotification({ type: "system", title: "تمت الموافقة ويحتاج التطبيق لإعادة المحاولة", body: `تمت الموافقة على التقرير #${input.id}، لكن تعذر تحديث إبراز الأداة. لم يتم تغيير بيانات حساسة.` });
         }
       }
       await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: `ai.report.${input.status}`, targetType: "improvementReport", targetId: input.id, req: ctx.req });
