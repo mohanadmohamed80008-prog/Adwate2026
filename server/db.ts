@@ -100,6 +100,7 @@ export const defaultSiteSettings = {
   allowRegistration: 1,
   adsensePublisherId: "",
   searchConsoleUrl: "",
+  aiEnabled: 1,
 } as const;
 
 export async function getSiteSettings() {

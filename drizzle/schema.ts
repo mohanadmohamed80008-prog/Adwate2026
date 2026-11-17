@@ -27,6 +27,7 @@ export const siteSettings = mysqlTable("siteSettings", {
   allowRegistration: int("allowRegistration").default(1).notNull(),
   adsensePublisherId: varchar("adsensePublisherId", { length: 32 }),
   searchConsoleUrl: varchar("searchConsoleUrl", { length: 512 }),
+  aiEnabled: int("aiEnabled").default(1).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

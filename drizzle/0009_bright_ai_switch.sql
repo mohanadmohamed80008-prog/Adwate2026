@@ -1,0 +1,1 @@
+ALTER TABLE `siteSettings` ADD `aiEnabled` int DEFAULT 1 NOT NULL;

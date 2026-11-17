@@ -8,6 +8,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { ADMIN_USERNAME, clearLocalSession, ensureAdminUser, hashPassword, isAdminLogin, setLocalSession, verifyPassword } from "./_core/localAuth";
 import { sendOwnerNotification } from "./_core/ownerNotifications";
+import { invokeLLM } from "./_core/llm";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
@@ -67,11 +68,35 @@ export const appRouter = router({
   analytics: router({
     recordVisit: publicProcedure.mutation(async () => { await recordSiteVisit(); return { success: true } as const; }),
   }),
+  ai: router({
+    assistant: protectedProcedure.input(z.object({
+      task: z.enum(["rewrite", "summarize", "proofread", "diagnose"]),
+      text: z.string().min(1).max(12000),
+      context: z.string().max(2000).optional(),
+    })).mutation(async ({ input }) => {
+      const settings = await getSiteSettings();
+      if (!settings.aiEnabled) throw new TRPCError({ code: "FORBIDDEN", message: "مساعد الذكاء الاصطناعي متوقف حاليًا من لوحة الإدارة" });
+      const taskLabel = { rewrite: "إعادة صياغة", summarize: "تلخيص", proofread: "تدقيق لغوي", diagnose: "تحليل مشكلة تقنية" }[input.task];
+      const result = await invokeLLM({
+        model: "gpt-6.1-sol",
+        reasoning: { effort: "low" },
+        maxTokens: 1400,
+        messages: [
+          { role: "system", content: "أنت مساعد عربي عملي داخل منصة أدواتي. أجب بالعربية الواضحة، لا تدّع تنفيذ تغييرات على الخادم أو الملفات، ولا تطلب كلمات مرور أو أسرارًا. عند تحليل مشكلة تقنية، قدّم خطوات آمنة قابلة للتنفيذ." },
+          { role: "user", content: `المهمة: ${taskLabel}\n${input.context ? `السياق: ${input.context}\n` : ""}النص أو المشكلة:\n${input.text}` },
+        ],
+      });
+      const content = result.choices?.[0]?.message?.content;
+      const text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content;
+      if (!text) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تصل نتيجة من نموذج الذكاء الاصطناعي" });
+      return { text };
+    }),
+  }),
   site: router({
     status: publicProcedure.query(async ({ ctx }) => {
       const settings = await getSiteSettings();
       const active = Boolean(ctx.user?.role === "admin" ? false : isSiteMaintenanceActive(settings));
-      return { maintenanceActive: active, settings: { allowRegistration: Boolean(settings.allowRegistration) } };
+      return { maintenanceActive: active, settings: { allowRegistration: Boolean(settings.allowRegistration), aiEnabled: Boolean(settings.aiEnabled) } };
     }),
     verification: publicProcedure.query(async () => {
       const settings = await getSiteSettings();
@@ -117,6 +142,11 @@ export const appRouter = router({
       adsensePublisherId: input.adsensePublisherId || null,
       searchConsoleUrl: input.searchConsoleUrl || null,
     }); await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "site.settings.update", targetType: "siteSettings", targetId: 1, metadata: input, req: ctx.req }); return updated; }),
+    updateAI: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const updated = await updateSiteSettings({ aiEnabled: input.enabled ? 1 : 0 });
+      await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "ai.settings.update", targetType: "siteSettings", targetId: 1, metadata: { enabled: input.enabled }, req: ctx.req });
+      return updated;
+    }),
   }),
 });
 

@@ -7,12 +7,14 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Admin from "@/pages/Admin";
 import Legal from "@/pages/Legal";
+import ToolPage from "@/pages/ToolPage";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/admin" component={Admin} />
+      <Route path="/tools/:toolId" component={ToolPage} />
       <Route path="/privacy"><Legal kind="privacy" /></Route>
       <Route path="/terms"><Legal kind="terms" /></Route>
       <Route path="/contact"><Legal kind="contact" /></Route>
