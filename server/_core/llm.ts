@@ -216,7 +216,7 @@ const platformApiBase = () => {
   if (!ENV.forgeApiUrl.trim()) throw new Error("MANUS_API_URL is not configured");
   return ENV.forgeApiUrl.replace(/\/$/, "");
 };
-const resolveApiUrl = () => `${platformApiBase()}/v1/chat/completions`;
+const resolveApiUrl = () => `${platformApiBase()}/v1/responses`;
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
@@ -342,83 +342,33 @@ const fetchWithBackoff = async (
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
-
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-    model,
-    thinking,
-    reasoning,
-    maxTokens,
-    max_tokens,
-  } = params;
-
-  const payload: Record<string, unknown> = {
-    messages: messages.map(normalizeMessage),
-  };
-
-  if (model) {
-    payload.model = model;
-  }
-
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  const resolvedMaxTokens = max_tokens ?? maxTokens;
-  if (typeof resolvedMaxTokens === "number") {
-    payload.max_tokens = resolvedMaxTokens;
-  }
-
-  if (thinking) {
-    payload.thinking = thinking;
-  }
-  if (reasoning) {
-    payload.reasoning = reasoning;
-  }
-
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
+  const input = params.messages.map(message => {
+    const normalized = normalizeMessage(message);
+    const text = typeof normalized.content === "string" ? normalized.content : JSON.stringify(normalized.content);
+    return { role: normalized.role === "assistant" ? "assistant" : normalized.role === "system" ? "system" : "user", content: [{ type: "input_text", text }] };
   });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
   const response = await fetchWithBackoff(resolveApiUrl(), {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json", API_KEY: ENV.forgeApiKey, authorization: `Bearer ${ENV.forgeApiKey}` },
+    body: JSON.stringify({ input, extra_body: { task_mode: "agent", agent_profile: "manus-1.6" } }),
   });
-
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
+    throw new Error(`Manus invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
   }
-
-  return (await response.json()) as InvokeResult;
+  let result = await response.json() as Record<string, any>;
+  const deadline = Date.now() + 90_000;
+  while (result.status === "running" && Date.now() < deadline) {
+    await sleep(2000);
+    const poll = await fetchWithBackoff(`${platformApiBase()}/v1/responses/${encodeURIComponent(result.id)}`, { headers: { API_KEY: ENV.forgeApiKey, authorization: `Bearer ${ENV.forgeApiKey}` } });
+    if (!poll.ok) throw new Error(`Manus response polling failed: ${poll.status} ${await poll.text()}`);
+    result = await poll.json() as Record<string, any>;
+  }
+  if (result.status !== "completed") throw new Error(`Manus task did not complete: ${result.status ?? "unknown"}`);
+  const assistantMessages = Array.isArray(result.output) ? result.output.filter((item: any) => item.role === "assistant") : [];
+  const text = assistantMessages.flatMap((item: any) => Array.isArray(item.content) ? item.content : []).map((part: any) => part.text || "").join("\n").trim();
+  if (!text) throw new Error("Manus returned no assistant text");
+  return { id: String(result.id), created: Number(result.createdAt || Date.now()), model: String(result.model || "manus-1.6"), choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }] };
 }
 
 export type ModelInfo = {
