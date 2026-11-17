@@ -113,12 +113,14 @@ export async function getSiteSettings() {
 export async function ensureOptionalSchema() {
   const db = await getDb();
   if (!db) return;
-  try {
-    await db.execute(sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS aiEnabled INT NOT NULL DEFAULT 1`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS toolUsageEvents (id INT AUTO_INCREMENT PRIMARY KEY, toolId VARCHAR(64) NOT NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_tool_usage_createdAt (createdAt), INDEX idx_tool_usage_toolId (toolId))`);
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS improvementReports (id INT AUTO_INCREMENT PRIMARY KEY, periodStart TIMESTAMP NOT NULL, periodEnd TIMESTAMP NOT NULL, status ENUM('proposed','approved','rejected','applied') NOT NULL DEFAULT 'proposed', summary TEXT NOT NULL, recommendations TEXT NOT NULL, reviewedAt TIMESTAMP NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_improvement_status (status), INDEX idx_improvement_createdAt (createdAt))`);
-  } catch (error) {
-    console.warn("[Database] Optional schema update skipped:", error instanceof Error ? error.message : error);
+  const statements = [
+    sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS aiEnabled INT NOT NULL DEFAULT 1`,
+    sql`CREATE TABLE IF NOT EXISTS toolUsageEvents (id INT AUTO_INCREMENT PRIMARY KEY, toolId VARCHAR(64) NOT NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_tool_usage_createdAt (createdAt), INDEX idx_tool_usage_toolId (toolId))`,
+    sql`CREATE TABLE IF NOT EXISTS improvementReports (id INT AUTO_INCREMENT PRIMARY KEY, periodStart TIMESTAMP NOT NULL, periodEnd TIMESTAMP NOT NULL, status ENUM('proposed','approved','rejected','applied') NOT NULL DEFAULT 'proposed', summary TEXT NOT NULL, recommendations TEXT NOT NULL, reviewedAt TIMESTAMP NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_improvement_status (status), INDEX idx_improvement_createdAt (createdAt))`,
+  ];
+  for (const statement of statements) {
+    try { await db.execute(statement); }
+    catch (error) { console.warn("[Database] Optional schema statement skipped:", error instanceof Error ? error.message : error); }
   }
 }
 
