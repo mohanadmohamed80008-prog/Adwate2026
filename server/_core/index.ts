@@ -10,7 +10,9 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ensureOptionalSchema, getSiteSettings } from "../db";
 import { ENV } from "./env";
-import { timingSafeEqual } from "crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+const githubOidcKeys = createRemoteJWKSet(new URL("https://token.actions.githubusercontent.com/.well-known/jwks"));
 
 async function startServer() {
   await ensureOptionalSchema();
@@ -21,10 +23,14 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/internal/weekly-ai-review", async (req, res) => {
-    const provided = String(req.header("x-weekly-review-secret") ?? "");
-    const expected = ENV.weeklyReviewSecret;
-    const valid = Boolean(expected) && provided.length === expected.length && timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
-    if (!valid) return res.status(401).json({ error: "unauthorized" });
+    const authorization = req.header("authorization") ?? "";
+    const token = authorization.replace(/^Bearer\s+/i, "");
+    try {
+      const { payload } = await jwtVerify(token, githubOidcKeys, { issuer: "https://token.actions.githubusercontent.com", audience: "adawati-weekly-review" });
+      if (payload.repository !== "mohanadmohamed80008-prog/Adwate2026" || payload.ref !== "refs/heads/main") return res.status(401).json({ error: "unauthorized" });
+    } catch {
+      return res.status(401).json({ error: "unauthorized" });
+    }
     try {
       const report = await runWeeklyImprovementReview();
       return res.status(201).json({ ok: true, reportId: report?.id ?? null });

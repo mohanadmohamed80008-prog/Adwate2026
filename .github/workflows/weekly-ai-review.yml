@@ -8,16 +8,19 @@ on:
 jobs:
   weekly-review:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - name: Generate review report
-        env:
-          SITE_URL: https://adawati.onrender.com
-          WEEKLY_REVIEW_SECRET: ${{ secrets.WEEKLY_REVIEW_SECRET }}
         run: |
           set -euo pipefail
-          test -n "$WEEKLY_REVIEW_SECRET"
+          token_response=$(curl --fail --retry 2 --max-time 30 \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=adawati-weekly-review")
+          oidc_token=$(echo "$token_response" | jq -r .value)
+          test -n "$oidc_token" && test "$oidc_token" != "null"
           curl --fail-with-body --retry 2 --max-time 120 \
-            -X POST "$SITE_URL/api/internal/weekly-ai-review" \
-            -H "x-weekly-review-secret: $WEEKLY_REVIEW_SECRET" \
+            -X POST "https://adawati.onrender.com/api/internal/weekly-ai-review" \
+            -H "Authorization: Bearer $oidc_token" \
             -H "content-type: application/json" \
             -d '{}'
