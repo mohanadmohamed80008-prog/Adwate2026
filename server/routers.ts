@@ -52,7 +52,8 @@ export async function runWeeklyImprovementReview() {
   if (report) {
     const title = "تقرير تحسين أسبوعي جديد";
     const body = `أنشأ مساعد الذكاء تقريرًا جديدًا رقم #${report.id}. راجعه من قسم التقارير قبل الموافقة على أي تغيير.`;
-    await createNotification({ type: "ai_report", title, body });
+    // Use the existing system notification enum for backward-compatible deployments.
+    await createNotification({ type: "system", title, body });
     void sendOwnerNotification(title, body);
   }
   return report;
