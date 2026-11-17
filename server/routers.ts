@@ -41,7 +41,14 @@ export async function runWeeklyImprovementReview() {
     console.warn("[Weekly AI Review] AI unavailable; creating fallback report:", error instanceof Error ? error.message : error);
   }
   if (!text) text = `ملخص آلي احتياطي للفترة من ${periodStart.toLocaleDateString("ar-SA")} إلى ${periodEnd.toLocaleDateString("ar-SA")}: الزيارات ${analytics.visitsTotal}، الأعضاء النشطون ${analytics.activeMembers}، والأعضاء الجدد ${analytics.newMembers}.\n\nاقتراحات للمراجعة:\n1. تحسين الصفحة أو الميزة المرتبطة بالأداة الأعلى استخدامًا (${usage[0]?.toolId ?? "غير متاح بعد"}) مع قياس أثر التغيير.\n2. إضافة اختصار أو قالب جاهز للأداة الثانية الأكثر استخدامًا (${usage[1]?.toolId ?? "غير متاح بعد"}).\n3. جمع طلبات المستخدمين من الدعم قبل تنفيذ أي أداة جديدة.\n\nملاحظة: هذا تقرير احتياطي لأن خدمة الذكاء لم تُرجع نتيجة في هذه الدورة. لا يتم تطبيق أي تغيير تلقائيًا.`;
-  const report = await createImprovementReport({ periodStart, periodEnd, summary: text.slice(0, 8000), recommendations: text.slice(0, 12000) });
+  let report: Awaited<ReturnType<typeof createImprovementReport>>;
+  try {
+    report = await createImprovementReport({ periodStart, periodEnd, summary: text.slice(0, 8000), recommendations: text.slice(0, 12000) });
+  } catch (error) {
+    console.error("[Weekly AI Review] Could not persist report; sending fallback notification:", error instanceof Error ? error.message : error);
+    try { await createNotification({ type: "system", title: "تقرير تحسين أسبوعي جاهز للمراجعة", body: text.slice(0, 700) }); } catch (notificationError) { console.error("[Weekly AI Review] Fallback notification failed:", notificationError); }
+    return undefined;
+  }
   if (report) {
     const title = "تقرير تحسين أسبوعي جديد";
     const body = `أنشأ مساعد الذكاء تقريرًا جديدًا رقم #${report.id}. راجعه من قسم التقارير قبل الموافقة على أي تغيير.`;
