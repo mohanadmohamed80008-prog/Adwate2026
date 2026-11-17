@@ -16,20 +16,31 @@ const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
 export async function runWeeklyImprovementReview() {
   const periodEnd = new Date();
   const periodStart = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const [usage, analytics] = await Promise.all([getToolUsageSummary(periodStart), getAnalyticsSummary()]);
+  let usage: Awaited<ReturnType<typeof getToolUsageSummary>> = [];
+  let analytics = { visitsTotal: 0, activeMembers: 0, newMembers: 0 };
+  try {
+    [usage, analytics] = await Promise.all([getToolUsageSummary(periodStart), getAnalyticsSummary()]);
+  } catch (error) {
+    console.warn("[Weekly AI Review] Analytics unavailable; using safe defaults:", error instanceof Error ? error.message : error);
+  }
   const usageText = usage.length ? usage.map((item, index) => `${index + 1}. ${item.toolId}: ${Number(item.uses)} استخدام`).join("\n") : "لا توجد بيانات استخدام كافية بعد.";
-  const result = await invokeLLM({
-    model: "gpt-6.1-sol",
-    reasoning: { effort: "low" },
-    maxTokens: 1800,
-    messages: [
-      { role: "system", content: "أنت مستشار نمو آمن لمنصة أدواتي. حلّل البيانات وقدّم تقريرًا عربيًا عمليًا. لا تقترح حذف بيانات أو منح صلاحيات واسعة أو نشرًا تلقائيًا. اقترح تحسينات صغيرة قابلة للمراجعة من المدير، مستندة إلى الأدوات الأكثر استخدامًا وأنماط الطلبات الشائعة في منصات الأدوات الرقمية. اكتب: ملخص، ثم 3 اقتراحات مرقمة مع الفائدة والمخاطر وخطوة التنفيذ." },
-      { role: "user", content: `الفترة: ${periodStart.toISOString()} إلى ${periodEnd.toISOString()}\nالزيارات الكلية: ${analytics.visitsTotal}\nالأعضاء النشطون: ${analytics.activeMembers}\nالأعضاء الجدد خلال 7 أيام: ${analytics.newMembers}\nاستخدام الأدوات خلال 7 أيام:\n${usageText}` },
-    ],
-  });
-  const content = result.choices?.[0]?.message?.content;
-  const text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content;
-  if (!text) throw new Error("لم تصل نتيجة تقرير التحسين الأسبوعي");
+  let text = "";
+  try {
+    const result = await invokeLLM({
+      model: "gpt-6.1-sol",
+      reasoning: { effort: "low" },
+      maxTokens: 1800,
+      messages: [
+        { role: "system", content: "أنت مستشار نمو آمن لمنصة أدواتي. حلّل البيانات وقدّم تقريرًا عربيًا عمليًا. لا تقترح حذف بيانات أو منح صلاحيات واسعة أو نشرًا تلقائيًا. اقترح تحسينات صغيرة قابلة للمراجعة من المدير، مستندة إلى الأدوات الأكثر استخدامًا وأنماط الطلبات الشائعة في منصات الأدوات الرقمية. اكتب: ملخص، ثم 3 اقتراحات مرقمة مع الفائدة والمخاطر وخطوة التنفيذ." },
+        { role: "user", content: `الفترة: ${periodStart.toISOString()} إلى ${periodEnd.toISOString()}\nالزيارات الكلية: ${analytics.visitsTotal}\nالأعضاء النشطون: ${analytics.activeMembers}\nالأعضاء الجدد خلال 7 أيام: ${analytics.newMembers}\nاستخدام الأدوات خلال 7 أيام:\n${usageText}` },
+      ],
+    });
+    const content = result.choices?.[0]?.message?.content;
+    text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content ?? "";
+  } catch (error) {
+    console.warn("[Weekly AI Review] AI unavailable; creating fallback report:", error instanceof Error ? error.message : error);
+  }
+  if (!text) text = `ملخص آلي احتياطي للفترة من ${periodStart.toLocaleDateString("ar-SA")} إلى ${periodEnd.toLocaleDateString("ar-SA")}: الزيارات ${analytics.visitsTotal}، الأعضاء النشطون ${analytics.activeMembers}، والأعضاء الجدد ${analytics.newMembers}.\n\nاقتراحات للمراجعة:\n1. تحسين الصفحة أو الميزة المرتبطة بالأداة الأعلى استخدامًا (${usage[0]?.toolId ?? "غير متاح بعد"}) مع قياس أثر التغيير.\n2. إضافة اختصار أو قالب جاهز للأداة الثانية الأكثر استخدامًا (${usage[1]?.toolId ?? "غير متاح بعد"}).\n3. جمع طلبات المستخدمين من الدعم قبل تنفيذ أي أداة جديدة.\n\nملاحظة: هذا تقرير احتياطي لأن خدمة الذكاء لم تُرجع نتيجة في هذه الدورة. لا يتم تطبيق أي تغيير تلقائيًا.`;
   const report = await createImprovementReport({ periodStart, periodEnd, summary: text.slice(0, 8000), recommendations: text.slice(0, 12000) });
   if (report) {
     const title = "تقرير تحسين أسبوعي جديد";
