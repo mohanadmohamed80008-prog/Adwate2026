@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { User } from "../drizzle/schema";
 import { COOKIE_NAME } from "@shared/const";
-import { createAuditLog, createImprovementReport, createLocalUser, createNotification, getAnalyticsSummary, getImprovementReportById, getSiteSettings, getToolUsageSummary, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listImprovementReports, listNotifications, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, recordToolUsage, updateImprovementReportStatus, updateSiteSettings, updateUserAccess } from "./db";
+import { createAuditLog, createImprovementReport, createLocalUser, createNotification, getAnalyticsSummary, getImprovementReportById, getSiteSettings, getToolUsageSummary, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listImprovementReports, listNotifications, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, recordToolUsage, setFeaturedTool, updateImprovementReportStatus, updateSiteSettings, updateUserAccess } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -143,7 +143,7 @@ export const appRouter = router({
     status: publicProcedure.query(async ({ ctx }) => {
       const settings = await getSiteSettings();
       const active = Boolean(ctx.user?.role === "admin" ? false : isSiteMaintenanceActive(settings));
-      return { maintenanceActive: active, settings: { allowRegistration: Boolean(settings.allowRegistration), aiEnabled: Boolean(settings.aiEnabled) } };
+      return { maintenanceActive: active, settings: { allowRegistration: Boolean(settings.allowRegistration), aiEnabled: Boolean(settings.aiEnabled), featuredToolId: settings.featuredToolId } };
     }),
     verification: publicProcedure.query(async () => {
       const settings = await getSiteSettings();
@@ -162,10 +162,18 @@ export const appRouter = router({
     analytics: adminProcedure.query(() => getAnalyticsSummary()),
     improvementReports: adminProcedure.query(() => listImprovementReports()),
     reviewImprovementReport: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]) })).mutation(async ({ input, ctx }) => {
-      const report = await updateImprovementReportStatus(input.id, input.status);
+      let report = await updateImprovementReportStatus(input.id, input.status);
       if (!report) throw new TRPCError({ code: "NOT_FOUND", message: "تقرير التحسين غير موجود" });
+      if (input.status === "approved") {
+        const topTool = (await getToolUsageSummary())[0]?.toolId;
+        if (topTool) {
+          await setFeaturedTool(topTool);
+          report = await updateImprovementReportStatus(input.id, "applied") ?? report;
+          await createNotification({ type: "system", title: "تم تطبيق التحسين تلقائيًا", body: `تم إبراز أداة «${topTool}» تلقائيًا لأنها الأكثر استخدامًا. يمكن التراجع عنها من إعدادات الموقع.` });
+        }
+      }
       await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: `ai.report.${input.status}`, targetType: "improvementReport", targetId: input.id, req: ctx.req });
-      await createNotification({ type: "system", title: input.status === "approved" ? "تمت الموافقة على تقرير التحسين" : "تم رفض تقرير التحسين", body: `تم تحديث حالة التقرير #${input.id}. لا تُطبّق تغييرات إنتاجية تلقائيًا.` });
+      await createNotification({ type: "system", title: input.status === "approved" ? "تمت الموافقة على تقرير التحسين" : "تم رفض تقرير التحسين", body: input.status === "approved" ? `تمت الموافقة على التقرير #${input.id} وبدأ تطبيق التحسين الآمن تلقائيًا.` : `تم رفض التقرير #${input.id}.` });
       return report;
     }),
     members: adminProcedure.query(async () => (await listUsers()).map(publicUser)),

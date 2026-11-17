@@ -101,6 +101,7 @@ export const defaultSiteSettings = {
   adsensePublisherId: "",
   searchConsoleUrl: "",
   aiEnabled: 1,
+  featuredToolId: null,
 } as const;
 
 export async function getSiteSettings() {
@@ -115,6 +116,7 @@ export async function ensureOptionalSchema() {
   if (!db) return;
   const statements = [
     sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS aiEnabled INT NOT NULL DEFAULT 1`,
+    sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS featuredToolId VARCHAR(64) NULL`,
     sql`CREATE TABLE IF NOT EXISTS toolUsageEvents (id INT AUTO_INCREMENT PRIMARY KEY, toolId VARCHAR(64) NOT NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_tool_usage_createdAt (createdAt), INDEX idx_tool_usage_toolId (toolId))`,
     sql`CREATE TABLE IF NOT EXISTS improvementReports (id INT AUTO_INCREMENT PRIMARY KEY, periodStart TIMESTAMP NOT NULL, periodEnd TIMESTAMP NOT NULL, status ENUM('proposed','approved','rejected','applied') NOT NULL DEFAULT 'proposed', summary TEXT NOT NULL, recommendations TEXT NOT NULL, reviewedAt TIMESTAMP NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_improvement_status (status), INDEX idx_improvement_createdAt (createdAt))`,
   ];
@@ -261,7 +263,13 @@ export async function listImprovementReports() {
   return db.select().from(improvementReports).orderBy(desc(improvementReports.createdAt)).limit(12);
 }
 
-export async function updateImprovementReportStatus(id: number, status: "approved" | "rejected") {
+export async function setFeaturedTool(toolId: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(siteSettings).set({ featuredToolId: toolId.slice(0, 64) }).where(eq(siteSettings.id, 1));
+}
+
+export async function updateImprovementReportStatus(id: number, status: "approved" | "rejected" | "applied") {
   const db = await getDb();
   if (!db) return undefined;
   await db.update(improvementReports).set({ status, reviewedAt: new Date() }).where(eq(improvementReports.id, id));

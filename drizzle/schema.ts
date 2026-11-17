@@ -28,6 +28,7 @@ export const siteSettings = mysqlTable("siteSettings", {
   adsensePublisherId: varchar("adsensePublisherId", { length: 32 }),
   searchConsoleUrl: varchar("searchConsoleUrl", { length: 512 }),
   aiEnabled: int("aiEnabled").default(1).notNull(),
+  featuredToolId: varchar("featuredToolId", { length: 64 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

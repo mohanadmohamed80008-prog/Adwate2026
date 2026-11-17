@@ -216,8 +216,10 @@ export default function Home() {
   const filteredTools = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const result = tools.filter((tool) => (category === "all" || tool.category === category) && (!normalized || `${tool.title} ${tool.description}`.toLowerCase().includes(normalized)));
-    return sort === "name" ? [...result].sort((a, b) => a.title.localeCompare(b.title, "ar")) : [...result].sort((a, b) => tools.indexOf(a) - tools.indexOf(b));
-  }, [category, query, sort]);
+    if (sort === "name") return [...result].sort((a, b) => a.title.localeCompare(b.title, "ar"));
+    const featuredId = siteStatus.data?.settings.featuredToolId;
+    return [...result].sort((a, b) => (a.id === featuredId ? -1 : b.id === featuredId ? 1 : tools.indexOf(a) - tools.indexOf(b)));
+  }, [category, query, sort, siteStatus.data?.settings.featuredToolId]);
 
   const openAuth = (mode: "login" | "register") => { setAuthError(""); setAuthMode(mode); };
   const openTool = (tool: Tool) => { if (!auth.user) { openAuth("register"); return; } setSelectedTool(tool); };
