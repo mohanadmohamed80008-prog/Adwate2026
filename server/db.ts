@@ -110,6 +110,16 @@ export async function getSiteSettings() {
   return result[0] ?? defaultSiteSettings;
 }
 
+export async function ensureOptionalSchema() {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute(sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS aiEnabled INT NOT NULL DEFAULT 1`);
+  } catch (error) {
+    console.warn("[Database] Optional schema update skipped:", error instanceof Error ? error.message : error);
+  }
+}
+
 export async function updateSiteSettings(values: Omit<InsertSiteSettings, "id">) {
   const db = await getDb();
   if (!db) return { ...defaultSiteSettings, ...values };

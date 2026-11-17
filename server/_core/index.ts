@@ -7,9 +7,10 @@ import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { getSiteSettings } from "../db";
+import { ensureOptionalSchema, getSiteSettings } from "../db";
 
 async function startServer() {
+  await ensureOptionalSchema();
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
