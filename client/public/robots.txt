@@ -1,13 +1,3 @@
-User-agent: Googlebot
-Allow: /
-Allow: /tools/
-Allow: /contact
-Allow: /privacy
-Allow: /terms
-Disallow: /admin
-Disallow: /api/
-Disallow: /manus-oauth/
-
 User-agent: *
 Allow: /
 Disallow: /admin
