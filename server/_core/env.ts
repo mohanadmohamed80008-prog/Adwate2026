@@ -10,4 +10,10 @@ export const ENV = {
   get forgeApiUrl() { return process.env.MANUS_API_URL ?? ""; },
   get forgeApiKey() { return process.env.MANUS_API_KEY ?? ""; },
   get weeklyReviewSecret() { return process.env.WEEKLY_REVIEW_SECRET ?? ""; },
+  get googleClientId() { return process.env.GOOGLE_CLIENT_ID ?? ""; },
+  get googleClientSecret() { return process.env.GOOGLE_CLIENT_SECRET ?? ""; },
+  get githubClientId() { return process.env.GITHUB_CLIENT_ID ?? ""; },
+  get githubClientSecret() { return process.env.GITHUB_CLIENT_SECRET ?? ""; },
+  get facebookAppId() { return process.env.FACEBOOK_APP_ID ?? ""; },
+  get facebookAppSecret() { return process.env.FACEBOOK_APP_SECRET ?? ""; },
 };
