@@ -9,6 +9,7 @@ import Admin from "@/pages/Admin";
 import Legal from "@/pages/Legal";
 import ToolPage from "./pages/ToolPage";
 import Member from "./pages/Member";
+import Pricing from "./pages/Pricing";
 import { trpc } from "@/lib/trpc";
 import { useEffect } from "react";
 
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/admin" component={Admin} />
       <Route path="/member" component={Member} />
+      <Route path="/pricing" component={Pricing} />
       <Route path="/tools/:toolId" component={ToolPage} />
       <Route path="/privacy"><Legal kind="privacy" /></Route>
       <Route path="/terms"><Legal kind="terms" /></Route>
