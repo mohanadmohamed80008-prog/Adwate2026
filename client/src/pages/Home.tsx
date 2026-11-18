@@ -57,8 +57,9 @@ type Tool = {
 };
 
 const categories = [
-  { id: "all", label: "كل الأدوات", count: 18 },
-  { id: "files", label: "ملفات وصور", count: 4 },
+  { id: "all", label: "كل الأدوات", count: 21 },
+  { id: "files", label: "ملفات وصور", count: 6 },
+  { id: "media", label: "صوت ونص", count: 1 },
   { id: "calc", label: "حساب وتحويل", count: 4 },
   { id: "text", label: "نصوص ومحتوى", count: 3 },
   { id: "generate", label: "توليد سريع", count: 3 },
@@ -67,9 +68,12 @@ const categories = [
 
 const tools: Tool[] = [
   { id: "compress", title: "ضغط الصور", description: "خفّف حجم صورك مع الحفاظ على الجودة.", category: "files", usage: "١٢.٤ ألف استخدام", icon: ImageIcon, accent: "teal", featured: true },
+  { id: "smart-compressor", title: "الضاغط الذكي", description: "اضغط الصور قبل رفعها للمواقع وواتساب.", category: "files", usage: "جديد", icon: FileArchive, accent: "green" },
   { id: "convert", title: "تحويل الصور", description: "PNG وJPG وWEBP وPDF في خطوة واحدة.", category: "files", usage: "٨.٧ ألف استخدام", icon: CloudUpload, accent: "blue" },
-  { id: "background", title: "إزالة الخلفية", description: "حضّر صور المنتجات والشخصية بسرعة.", category: "files", usage: "٦.٢ ألف استخدام", icon: Palette, accent: "violet" },
-  { id: "pdf", title: "أدوات PDF", description: "دمج وتقسيم وضغط ملفات PDF.", category: "files", usage: "٩.١ ألف استخدام", icon: FileArchive, accent: "orange" },
+  { id: "background", title: "إزالة الخلفية الذكية", description: "حضّر صور المنتجات والشخصية بسرعة.", category: "files", usage: "٦.٢ ألف استخدام", icon: Palette, accent: "violet" },
+  { id: "ocr", title: "استخراج النص OCR", description: "استخرج النص العربي من الصور والمستندات.", category: "files", usage: "جديد", icon: FileText, accent: "orange" },
+  { id: "pdf", title: "مركز PDF", description: "دمج وتقسيم وتنظيف ملفات PDF.", category: "files", usage: "٩.١ ألف استخدام", icon: FileArchive, accent: "orange" },
+  { id: "audio-text", title: "تفريغ الصوت إلى نص", description: "حوّل التسجيلات والاجتماعات إلى نص عربي.", category: "media", usage: "جديد", icon: FileText, accent: "blue" },
   { id: "currency", title: "محول العملات", description: "حوّل بين العملات في ثوانٍ.", category: "calc", usage: "١٥.٨ ألف استخدام", icon: Globe2, accent: "green" },
   { id: "age", title: "حاسبة العمر", description: "احسب العمر والفرق بين تاريخين.", category: "calc", usage: "٧.٦ ألف استخدام", icon: Clock3, accent: "yellow" },
   { id: "percent", title: "النسبة والخصومات", description: "احسب الخصم والضريبة والزيادة.", category: "calc", usage: "١١.٣ ألف استخدام", icon: Percent, accent: "pink", action: "percent" },

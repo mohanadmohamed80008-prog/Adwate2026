@@ -9,6 +9,8 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { ADMIN_USERNAME, clearLocalSession, ensureAdminUser, hashPassword, isAdminLogin, setLocalSession, verifyPassword } from "./_core/localAuth";
 import { sendOwnerNotification } from "./_core/ownerNotifications";
 import { invokeLLM } from "./_core/llm";
+import { transcribeAudio } from "./_core/voiceTranscription";
+import { storageGetSignedUrl, storagePut } from "./storage";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
@@ -137,6 +139,24 @@ export const appRouter = router({
       const text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content;
       if (!text) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "لم تصل نتيجة من نموذج الذكاء الاصطناعي" });
       return { text };
+    }),
+  }),
+  voice: router({
+    transcribe: protectedProcedure.input(z.object({
+      dataUrl: z.string().min(20).max(23_000_000),
+      fileName: z.string().max(180),
+      mimeType: z.string().regex(/^audio\//),
+      language: z.string().regex(/^[a-z]{2}$/).default("ar"),
+    })).mutation(async ({ input }) => {
+      const match = input.dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+      if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "ملف الصوت غير صالح" });
+      const buffer = Buffer.from(match[1], "base64");
+      if (buffer.length > 16 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "الحد الأقصى للصوت 16 ميجابايت" });
+      const stored = await storagePut(`audio/${Date.now()}-${input.fileName.replace(/[^a-z0-9._-]/gi, "-")}`, buffer, input.mimeType);
+      const signedUrl = await storageGetSignedUrl(stored.key);
+      const result = await transcribeAudio({ audioUrl: signedUrl, language: input.language, prompt: "اكتب التفريغ باللغة العربية مع علامات ترقيم واضحة، وحافظ على أسماء الأشخاص والمصطلحات كما نُطقت." });
+      if ("error" in result) throw new TRPCError({ code: "BAD_REQUEST", message: result.error });
+      return { text: result.text, language: result.language, duration: result.duration };
     }),
   }),
   site: router({
