@@ -7,7 +7,9 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Admin from "@/pages/Admin";
 import Legal from "@/pages/Legal";
-import ToolPage from "@/pages/ToolPage";
+import ToolPage from "./pages/ToolPage";
+import { trpc } from "@/lib/trpc";
+import { useEffect } from "react";
 
 function Router() {
   return (
@@ -25,6 +27,19 @@ function Router() {
 }
 
 function App() {
+  const verification = trpc.site.verification.useQuery();
+  useEffect(() => {
+    const publisherId = verification.data?.adsensePublisherId;
+    if (!publisherId) return;
+    const existing = document.querySelector('script[data-ad-client="' + publisherId + '"]');
+    if (existing) return;
+    const script = document.createElement("script");
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.dataset.adClient = publisherId;
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-${publisherId}`;
+    document.head.appendChild(script);
+  }, [verification.data?.adsensePublisherId]);
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
