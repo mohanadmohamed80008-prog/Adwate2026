@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="260" viewBox="0 0 920 260" role="img" aria-labelledby="title desc">
+  <title id="title">أدواتي — أنجزها ببساطة</title>
+  <desc id="desc">شعار منصة أدواتي الرقمية</desc>
+  <defs>
+    <linearGradient id="mark" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#134e4a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#0f172a" flood-opacity=".18"/>
+    </filter>
+  </defs>
+  <g transform="translate(30 30)" filter="url(#shadow)">
+    <rect width="200" height="200" rx="48" fill="url(#mark)"/>
+    <path d="M58 153c25-15 34-37 34-66V61h38v25c0 28 9 50 34 67-18 10-37 15-53 15s-35-5-53-15Z" fill="#f8fafc" opacity=".98"/>
+    <path d="M89 58h42" stroke="#f8fafc" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="44" cy="167" r="10" fill="#fb923c"/>
+  </g>
+  <g font-family="Tahoma, Arial, sans-serif" text-anchor="end">
+    <text x="870" y="137" font-size="92" font-weight="900" fill="#0f172a">أدواتي</text>
+    <text x="866" y="190" font-size="27" font-weight="700" letter-spacing="7" fill="#0f766e">أنجزها ببساطة</text>
+  </g>
+</svg>
