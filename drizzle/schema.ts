@@ -18,6 +18,36 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+export const memberProfiles = mysqlTable("memberProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  displayName: varchar("displayName", { length: 120 }),
+  bio: text("bio"),
+  website: varchar("website", { length: 512 }),
+  githubUsername: varchar("githubUsername", { length: 120 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const toolProposals = mysqlTable("toolProposals", {
+  id: int("id").autoincrement().primaryKey(),
+  memberId: int("memberId").notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  slug: varchar("slug", { length: 80 }).notNull(),
+  description: text("description").notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  sourceType: mysqlEnum("sourceType", ["idea", "github"]).default("idea").notNull(),
+  githubUrl: varchar("githubUrl", { length: 512 }),
+  status: mysqlEnum("status", ["pending_review", "approved", "rejected", "published"]).default("pending_review").notNull(),
+  aiReview: text("aiReview"),
+  aiRiskScore: int("aiRiskScore").default(0).notNull(),
+  aiCheckedAt: timestamp("aiCheckedAt"),
+  adminNote: text("adminNote"),
+  revenueShareBasisPoints: int("revenueShareBasisPoints").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const siteSettings = mysqlTable("siteSettings", {
   id: int("id").primaryKey(),
   maintenanceEnabled: int("maintenanceEnabled").default(0).notNull(),

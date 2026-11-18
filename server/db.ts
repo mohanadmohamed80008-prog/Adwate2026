@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, like, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { auditLogs, improvementReports, InsertSiteSettings, InsertUser, notifications, siteSettings, siteStats, toolUsageEvents, users, visitEvents } from "../drizzle/schema";
+import { auditLogs, improvementReports, InsertSiteSettings, InsertUser, memberProfiles, notifications, siteSettings, siteStats, toolProposals, toolUsageEvents, users, visitEvents } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { sendOwnerNotification } from './_core/ownerNotifications';
 
@@ -77,6 +77,47 @@ export async function updateUserAccess(id: number, values: { role: "user" | "edi
   return getUserById(id);
 }
 
+export async function getMemberProfile(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(memberProfiles).where(eq(memberProfiles.userId, userId)).limit(1);
+  return result[0];
+}
+
+export async function upsertMemberProfile(userId: number, values: { displayName?: string | null; bio?: string | null; website?: string | null; githubUsername?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(memberProfiles).values({ userId, ...values }).onDuplicateKeyUpdate({ set: values });
+  return getMemberProfile(userId);
+}
+
+export async function createToolProposal(values: { memberId: number; title: string; slug: string; description: string; category: string; sourceType: "idea" | "github"; githubUrl?: string | null; aiReview?: string | null; aiRiskScore?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [result] = await db.insert(toolProposals).values({ ...values, status: "pending_review", aiRiskScore: values.aiRiskScore ?? 0, aiCheckedAt: new Date() });
+  return getToolProposalById(Number(result.insertId));
+}
+
+export async function getToolProposalById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(toolProposals).where(eq(toolProposals.id, id)).limit(1);
+  return result[0];
+}
+
+export async function listToolProposals(memberId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(toolProposals).where(memberId === undefined ? undefined : eq(toolProposals.memberId, memberId)).orderBy(desc(toolProposals.createdAt)).limit(100);
+}
+
+export async function reviewToolProposal(id: number, values: { status: "approved" | "rejected" | "published"; adminNote?: string | null; revenueShareBasisPoints?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(toolProposals).set(values).where(eq(toolProposals.id, id));
+  return getToolProposalById(id);
+}
+
 export async function createLocalUser(values: { username: string; passwordHash: string; name: string; role?: "user" | "admin" }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -119,6 +160,8 @@ export async function ensureOptionalSchema() {
     sql`ALTER TABLE siteSettings ADD COLUMN IF NOT EXISTS featuredToolId VARCHAR(64) NULL`,
     sql`CREATE TABLE IF NOT EXISTS toolUsageEvents (id INT AUTO_INCREMENT PRIMARY KEY, toolId VARCHAR(64) NOT NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_tool_usage_createdAt (createdAt), INDEX idx_tool_usage_toolId (toolId))`,
     sql`CREATE TABLE IF NOT EXISTS improvementReports (id INT AUTO_INCREMENT PRIMARY KEY, periodStart TIMESTAMP NOT NULL, periodEnd TIMESTAMP NOT NULL, status ENUM('proposed','approved','rejected','applied') NOT NULL DEFAULT 'proposed', summary TEXT NOT NULL, recommendations TEXT NOT NULL, reviewedAt TIMESTAMP NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_improvement_status (status), INDEX idx_improvement_createdAt (createdAt))`,
+    sql`CREATE TABLE IF NOT EXISTS memberProfiles (id INT AUTO_INCREMENT PRIMARY KEY, userId INT NOT NULL UNIQUE, displayName VARCHAR(120) NULL, bio TEXT NULL, website VARCHAR(512) NULL, githubUsername VARCHAR(120) NULL, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)`,
+    sql`CREATE TABLE IF NOT EXISTS toolProposals (id INT AUTO_INCREMENT PRIMARY KEY, memberId INT NOT NULL, title VARCHAR(160) NOT NULL, slug VARCHAR(80) NOT NULL, description TEXT NOT NULL, category VARCHAR(80) NOT NULL, sourceType ENUM('idea','github') NOT NULL DEFAULT 'idea', githubUrl VARCHAR(512) NULL, status ENUM('pending_review','approved','rejected','published') NOT NULL DEFAULT 'pending_review', aiReview TEXT NULL, aiRiskScore INT NOT NULL DEFAULT 0, aiCheckedAt TIMESTAMP NULL, adminNote TEXT NULL, revenueShareBasisPoints INT NOT NULL DEFAULT 0, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX idx_proposals_member (memberId), INDEX idx_proposals_status (status))`,
   ];
   for (const statement of statements) {
     try { await db.execute(statement); }

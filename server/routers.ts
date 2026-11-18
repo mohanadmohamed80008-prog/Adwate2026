@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { User } from "../drizzle/schema";
 import { COOKIE_NAME } from "@shared/const";
-import { createAuditLog, createImprovementReport, createLocalUser, createNotification, getAnalyticsSummary, getImprovementReportById, getSiteSettings, getToolUsageSummary, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listImprovementReports, listNotifications, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, recordToolUsage, setFeaturedTool, updateImprovementReportStatus, updateSiteSettings, updateUserAccess } from "./db";
+import { createAuditLog, createImprovementReport, createLocalUser, createNotification, createToolProposal, getAnalyticsSummary, getImprovementReportById, getMemberProfile, getSiteSettings, getToolUsageSummary, getUserByUsername, isSiteMaintenanceActive, listAuditLogs, listImprovementReports, listNotifications, listToolProposals, listUsers, markAllNotificationsRead, markNotificationRead, recordSiteVisit, recordToolUsage, reviewToolProposal, setFeaturedTool, updateImprovementReportStatus, updateSiteSettings, updateUserAccess, upsertMemberProfile } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -14,6 +14,32 @@ import { storageGetSignedUrl, storagePut } from "./storage";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
+
+async function inspectGithubRepository(url: string) {
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/#?]+)\/?$/i);
+  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل رابط مستودع GitHub عامًا بصيغة https://github.com/owner/repository" });
+  const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}`, { headers: { Accept: "application/vnd.github+json", "User-Agent": "Adawati-Security-Review" } });
+  if (!response.ok) throw new TRPCError({ code: response.status === 404 ? "NOT_FOUND" : "BAD_REQUEST", message: "تعذر قراءة المستودع العام أو أنه غير موجود" });
+  const data = await response.json() as { name?: string; full_name?: string; description?: string; html_url?: string; default_branch?: string; archived?: boolean; license?: { spdx_id?: string } | null; topics?: string[]; stargazers_count?: number };
+  return { owner: match[1], repository: match[2], name: data.name ?? match[2], fullName: data.full_name ?? `${match[1]}/${match[2]}`, description: data.description ?? "لا يوجد وصف", url: data.html_url ?? url, branch: data.default_branch ?? "main", archived: Boolean(data.archived), license: data.license?.spdx_id ?? "غير محدد", topics: data.topics ?? [], stars: data.stargazers_count ?? 0 };
+}
+
+async function runProposalSecurityReview(input: { title: string; description: string; category: string; sourceType: "idea" | "github"; github?: Awaited<ReturnType<typeof inspectGithubRepository>> }) {
+  const source = input.github ? `مستودع GitHub: ${JSON.stringify(input.github)}` : "فكرة جديدة دون مستودع";
+  try {
+    const result = await invokeLLM({ model: "gpt-6.1-sol", reasoning: { effort: "low" }, maxTokens: 1100, messages: [
+      { role: "system", content: "أنت مراجع أمن برمجي لمنصة أدواتي. راجع طلب أداة قبل أن يراه المدير. لا تشغّل كودًا ولا تعتبر المستودع آمنًا لمجرد أن GitHub قرأ بياناته. اذكر المخاطر المحتملة، ما يحتاج فحصًا يدويًا، واقترح قرارًا. اكتب في أول سطر RISK_SCORE: رقم من 0 إلى 100، حيث 100 خطر مرتفع." },
+      { role: "user", content: `العنوان: ${input.title}\nالوصف: ${input.description}\nالفئة: ${input.category}\nالمصدر: ${input.sourceType}\n${source}` },
+    ] });
+    const content = result.choices?.[0]?.message?.content;
+    const text = Array.isArray(content) ? content.map((part) => part.type === "text" ? part.text : "").join("") : content ?? "";
+    const score = Number(text.match(/RISK_SCORE\s*:\s*(\d{1,3})/i)?.[1] ?? 35);
+    return { text: text || "RISK_SCORE: 35\nلم تُرجع خدمة الفحص تقريرًا مفصلًا؛ يلزم فحص يدوي قبل الدمج.", score: Math.min(100, Math.max(0, score)) };
+  } catch (error) {
+    console.warn("[Proposal Review] AI unavailable:", error instanceof Error ? error.message : error);
+    return { text: "RISK_SCORE: 60\nتعذر تشغيل الفحص الآلي الآن. لا تنشر الطلب قبل مراجعة المدير وفحص المصدر يدويًا.", score: 60 };
+  }
+}
 
 export async function runWeeklyImprovementReview() {
   const periodEnd = new Date();
@@ -174,6 +200,25 @@ export const appRouter = router({
       return getSiteSettings();
     }),
   }),
+  member: router({
+    profile: protectedProcedure.query(({ ctx }) => getMemberProfile(ctx.user.id)),
+    updateProfile: protectedProcedure.input(z.object({ displayName: z.string().max(120).optional(), bio: z.string().max(2000).optional(), website: z.string().url().max(512).optional().or(z.literal("")), githubUsername: z.string().max(120).optional() })).mutation(async ({ input, ctx }) => {
+      const profile = await upsertMemberProfile(ctx.user.id, input);
+      await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "member.profile.update", targetType: "memberProfile", targetId: ctx.user.id, req: ctx.req });
+      return profile;
+    }),
+    proposals: protectedProcedure.query(({ ctx }) => listToolProposals(ctx.user.id)),
+    createProposal: protectedProcedure.input(z.object({ title: z.string().min(3).max(160), description: z.string().min(20).max(5000), category: z.string().min(2).max(80), sourceType: z.enum(["idea", "github"]), githubUrl: z.string().url().max(512).optional().or(z.literal("")) })).mutation(async ({ input, ctx }) => {
+      if (input.sourceType === "github" && !input.githubUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "أضف رابط GitHub قبل الفحص" });
+      const github = input.sourceType === "github" && input.githubUrl ? await inspectGithubRepository(input.githubUrl) : undefined;
+      const review = await runProposalSecurityReview({ ...input, github });
+      const slug = `${input.title.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, "-").replace(/^-|-$/g, "").slice(0, 60)}-${Date.now().toString(36)}`;
+      const proposal = await createToolProposal({ memberId: ctx.user.id, title: input.title, slug, description: input.description, category: input.category, sourceType: input.sourceType, githubUrl: input.githubUrl || null, aiReview: review.text, aiRiskScore: review.score });
+      await createNotification({ type: "system", title: "طلب أداة جديد بانتظار المدير", body: `أرسل ${ctx.user.name || ctx.user.username || "عضو"} طلب «${input.title}» مع تقرير فحص آلي أولي.` });
+      await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "tool.proposal.create", targetType: "toolProposal", targetId: proposal?.id, metadata: { sourceType: input.sourceType, riskScore: review.score }, req: ctx.req });
+      return proposal;
+    }),
+  }),
   admin: router({
     auditLogs: adminProcedure.input(z.object({ search: z.string().optional(), action: z.string().optional() }).optional()).query(({ input }) => listAuditLogs(input ?? {})),
     notifications: adminProcedure.query(() => listNotifications()),
@@ -202,6 +247,14 @@ export const appRouter = router({
       return report;
     }),
     members: adminProcedure.query(async () => (await listUsers()).map(publicUser)),
+    toolProposals: adminProcedure.query(() => listToolProposals()),
+    reviewToolProposal: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected", "published"]), adminNote: z.string().max(3000).optional(), revenueSharePercent: z.number().min(0).max(100).default(0) })).mutation(async ({ input, ctx }) => {
+      const proposal = await reviewToolProposal(input.id, { status: input.status, adminNote: input.adminNote ?? null, revenueShareBasisPoints: Math.round(input.revenueSharePercent * 100) });
+      if (!proposal) throw new TRPCError({ code: "NOT_FOUND", message: "طلب الأداة غير موجود" });
+      await createNotification({ type: "system", title: `تم تحديث طلب الأداة «${proposal.title}»`, body: input.status === "approved" ? "وافق المدير على الطلب، ويحتاج الدمج النهائي مراجعة نشر منفصلة." : input.status === "published" ? "تم اعتماد الطلب للنشر بعد المراجعة." : "تم رفض الطلب مع حفظ ملاحظة المدير." });
+      await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: `tool.proposal.${input.status}`, targetType: "toolProposal", targetId: input.id, metadata: { revenueSharePercent: input.revenueSharePercent, adminNote: input.adminNote }, req: ctx.req });
+      return proposal;
+    }),
     updateMember: adminProcedure.input(z.object({
       id: z.number().int().positive(),
       role: z.enum(["user", "editor", "admin"]),
