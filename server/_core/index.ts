@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { ensureOptionalSchema, getSiteSettings } from "../db";
 import { ENV } from "./env";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { retrieveDibsyPayment } from "./dibsy";
 
 const githubOidcKeys = createRemoteJWKSet(new URL("https://token.actions.githubusercontent.com/.well-known/jwks"));
 
@@ -22,6 +23,21 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+  app.post("/api/payments/dibsy/webhook", async (req, res) => {
+    const resource = typeof req.body?.resource === "string" ? req.body.resource : "";
+    const id = typeof req.body?.id === "string" ? req.body.id : "";
+    if (resource !== "payment" || !/^pt_[A-Za-z0-9]+$/.test(id)) return res.status(400).json({ ok: false, error: "invalid webhook payload" });
+    try {
+      const payment = await retrieveDibsyPayment(id);
+      console.log(`[Dibsy Webhook] ${id}: ${payment.status ?? "unknown"}`);
+      // Sandbox phase: acknowledge after server-side verification only.
+      // Entitlement updates will be added with the subscription tables before live billing.
+      return res.status(200).json({ ok: true, paymentId: id, status: payment.status ?? "unknown" });
+    } catch (error) {
+      console.error("[Dibsy Webhook] Verification failed:", error instanceof Error ? error.message : error);
+      return res.status(503).json({ ok: false, error: "payment verification unavailable" });
+    }
+  });
   app.post("/api/internal/weekly-ai-review", async (req, res) => {
     const authorization = req.header("authorization") ?? "";
     const token = authorization.replace(/^Bearer\s+/i, "");

@@ -16,4 +16,7 @@ export const ENV = {
   get githubClientSecret() { return process.env.GITHUB_CLIENT_SECRET ?? ""; },
   get facebookAppId() { return process.env.FACEBOOK_APP_ID ?? ""; },
   get facebookAppSecret() { return process.env.FACEBOOK_APP_SECRET ?? ""; },
+  get dibsySecretKey() { return process.env.DIBSY_SECRET_KEY ?? ""; },
+  get dibsyApiBaseUrl() { return process.env.DIBSY_API_BASE_URL ?? "https://api.dibsy.one/v2"; },
+  get dibsyPublicAppUrl() { return process.env.DIBSY_PUBLIC_APP_URL ?? "https://adawati.onrender.com"; },
 };
