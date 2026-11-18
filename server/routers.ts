@@ -11,7 +11,7 @@ import { sendOwnerNotification } from "./_core/ownerNotifications";
 import { invokeLLM } from "./_core/llm";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { storageGetSignedUrl, storagePut } from "./storage";
-import { createDibsyCheckout } from "./_core/dibsy";
+import { createTapCheckout } from "./_core/tap";
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const usernamePattern = /^[a-zA-Z0-9_]{3,32}$/;
@@ -187,23 +187,23 @@ export const appRouter = router({
     }),
   }),
   billing: router({
-    createDibsySandboxCheckout: protectedProcedure.input(z.object({ plan: z.enum(["pro", "business"]) })).mutation(async ({ input, ctx }) => {
+    createTapSandboxCheckout: protectedProcedure.input(z.object({ plan: z.enum(["pro", "business"]) })).mutation(async ({ input, ctx }) => {
       const plan = input.plan === "pro"
         ? { amountQar: "19.00", name: "أدواتي Pro — تجربة Sandbox" }
         : { amountQar: "79.00", name: "أدواتي للأعمال وAPI — تجربة Sandbox" };
       try {
-        const payment = await createDibsyCheckout({
+        const payment = await createTapCheckout({
           amountQar: plan.amountQar,
           description: plan.name,
           metadata: { userId: String(ctx.user.id), plan: input.plan, environment: "sandbox" },
         });
-        const checkoutUrl = payment._links?.checkout?.href;
-        if (!payment.id || !checkoutUrl) throw new Error("Dibsy لم يُرجع رابط Checkout صالحًا");
-        await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "billing.dibsy.sandbox_checkout", targetType: "payment", targetId: payment.id, metadata: { plan: input.plan, amountQar: plan.amountQar }, req: ctx.req });
+        const checkoutUrl = payment.transaction?.url ?? payment.redirect?.url;
+        if (!payment.id || !checkoutUrl) throw new Error("Tap لم يُرجع رابط Checkout صالحًا");
+        await createAuditLog({ actorUserId: ctx.user.id, actorUsername: ctx.user.username, action: "billing.tap.sandbox_checkout", targetType: "payment", targetId: payment.id, metadata: { plan: input.plan, amountQar: plan.amountQar }, req: ctx.req });
         return { paymentId: payment.id, checkoutUrl, mode: "sandbox" as const, amountQar: plan.amountQar };
       } catch (error) {
-        console.error("[Dibsy Sandbox] Checkout failed:", error instanceof Error ? error.message : error);
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تكامل Dibsy Sandbox غير مهيأ بعد أو تعذر إنشاء جلسة الاختبار" });
+        console.error("[Tap Sandbox] Checkout failed:", error instanceof Error ? error.message : error);
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "تكامل Tap Sandbox غير مهيأ بعد أو تعذر إنشاء جلسة الاختبار" });
       }
     }),
   }),
